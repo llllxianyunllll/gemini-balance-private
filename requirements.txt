@@ -1,10 +1,10 @@
-fastapi
 httpx[socks]
 openai
 pydantic
 pydantic_settings
 requests
-starlette
+fastapi==0.103.2
+starlette==0.27.0
 uvicorn
 google-genai
 jinja2
