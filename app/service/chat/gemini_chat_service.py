@@ -183,12 +183,12 @@ def _build_tools(model: str, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
             tool["urlContext"] = {}
 
     # 解决 "Tool use with function calling is unsupported" 问题
-    if tool.get("functionDeclarations") or _has_function_call(
-        payload.get("contents", [])
-    ):
-        tool.pop("googleSearch", None)
-        tool.pop("codeExecution", None)
-        tool.pop("urlContext", None)
+    # if tool.get("functionDeclarations") or _has_function_call(
+    #     payload.get("contents", [])
+    # ):
+    #     tool.pop("googleSearch", None)
+    #     tool.pop("codeExecution", None)
+    #     tool.pop("urlContext", None)
 
     return [tool] if tool else []
 

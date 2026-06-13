@@ -149,10 +149,10 @@ def _build_tools(
             tool["functionDeclarations"] = functions
 
     # 解决 "Tool use with function calling is unsupported" 问题
-    if tool.get("functionDeclarations"):
-        tool.pop("googleSearch", None)
-        tool.pop("codeExecution", None)
-        tool.pop("urlContext", None)
+    # if tool.get("functionDeclarations"):
+    #     tool.pop("googleSearch", None)
+    #     tool.pop("codeExecution", None)
+    #     tool.pop("urlContext", None)
 
     return [tool] if tool else []
 
