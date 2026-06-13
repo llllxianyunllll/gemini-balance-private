@@ -62,6 +62,8 @@ def _clean_json_schema_properties(obj: Any) -> Any:
         "$comment",
         "readOnly",
         "writeOnly",
+        "strict",
+        "additionalProperties",
     }
 
     cleaned = {}
