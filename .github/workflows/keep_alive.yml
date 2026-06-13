@@ -1,0 +1,17 @@
+name: Render Keep-Alive
+
+on:
+  schedule:
+    # 每 10 分钟准时触发一次
+    - cron: "*/10 * * * *"
+  workflow_dispatch: # 这个配置允许你在 GitHub 网页上直接手动点按钮运行测试
+
+jobs:
+  ping-render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Fake Browser Request
+        # 使用 curl 发送请求，并带上伪装成 Windows Chrome 浏览器的 User-Agent 标头
+        # 目标地址指向你的 health 接口，不会干扰主业务
+        run: |
+          curl -sS -m 20 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" https://gemini-balance-private.onrender.com/health
