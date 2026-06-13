@@ -91,6 +91,11 @@ def _clean_json_schema_properties(obj: Any) -> Any:
     for key, value in obj.items():
         if key in unsupported_fields:
             continue
+            
+        if key == "type" and isinstance(value, list):
+            valid_types = [t for t in value if t and t != "null"]
+            value = valid_types[0] if valid_types else "string"
+
         if isinstance(value, dict):
             cleaned[key] = _clean_json_schema_properties(value)
         elif isinstance(value, list):
