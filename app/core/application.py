@@ -93,6 +93,7 @@ async def lifespan(app: FastAPI):
         app: FastAPI应用实例
     """
     logger.info("Application starting up...")
+    logger.info("====== DEPLOYMENT CHECK: OpenAPI strict/additionalProperties patch is applied ======")
     try:
         await _setup_database_and_config(settings)
         await _perform_update_check(app)
