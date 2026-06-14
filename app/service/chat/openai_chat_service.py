@@ -35,54 +35,39 @@ def _has_media_parts(messages: List[Dict[str, Any]]) -> bool:
     return False
 
 
-def _clean_json_schema_properties(obj: Any) -> Any:
-    """清理JSON Schema中Gemini API不支持的字段"""
-    if not isinstance(obj, dict):
-        return obj
+def _sanitize_schema(schema: dict) -> dict:
+    """
+    递归清洗 JSON Schema，仅保留 Gemini API 严格支持的字段，防止 400 报错。
+    """
+    if not isinstance(schema, dict):
+        return schema
 
-    # Gemini API不支持的JSON Schema字段
-    unsupported_fields = {
-        "exclusiveMaximum",
-        "exclusiveMinimum",
-        "const",
-        "examples",
-        "contentEncoding",
-        "contentMediaType",
-        "if",
-        "then",
-        "else",
-        "allOf",
-        "anyOf",
-        "oneOf",
-        "not",
-        "definitions",
-        "$schema",
-        "$id",
-        "$ref",
-        "$comment",
-        "readOnly",
-        "writeOnly",
-        "strict",
-        "additionalProperties",
+    # Gemini Schema 对象严格允许的字段白名单
+    allowed_keys = {
+        "type", "format", "description", "nullable", 
+        "enum", "properties", "required", "items"
     }
+    
+    cleaned_schema = {}
+    for key, value in schema.items():
+        if key in allowed_keys:
+            if key == "properties" and isinstance(value, dict):
+                cleaned_schema[key] = {k: _sanitize_schema(v) for k, v in value.items()}
+            elif key == "items" and isinstance(value, dict):
+                cleaned_schema[key] = _sanitize_schema(value)
+            # 处理 type 为 list 的边缘情况 (Gemini 官方标准只允许 string，例如 "STRING" 或 "OBJECT")
+            elif key == "type" and isinstance(value, list):
+                 # 如果有多个 type（如 ["string", "null"]），提取主要类型
+                 cleaned_schema[key] = value[0] if value else "STRING"
+            else:
+                cleaned_schema[key] = value
 
-    cleaned = {}
-    for key, value in obj.items():
-        if key in unsupported_fields:
-            continue
-            
-        if key == "type" and isinstance(value, list):
-            valid_types = [t for t in value if t and t != "null"]
-            value = valid_types[0] if valid_types else "string"
+    # 类型映射兜底：OpenAI 传进来的类型可能是小写的 json schema 标准，
+    # Gemini 部分旧接口可能需要大写，视具体 SDK 实现而定（如果 SDK 已经处理则忽略，这里保证结构纯净）
+    if "type" in cleaned_schema and isinstance(cleaned_schema["type"], str):
+        cleaned_schema["type"] = cleaned_schema["type"].upper()
 
-        if isinstance(value, dict):
-            cleaned[key] = _clean_json_schema_properties(value)
-        elif isinstance(value, list):
-            cleaned[key] = [_clean_json_schema_properties(item) for item in value]
-        else:
-            cleaned[key] = value
-
-    return cleaned
+    return cleaned_schema
 
 
 def _build_tools(
@@ -130,7 +115,8 @@ def _build_tools(
                     function.pop("parameters", None)
 
                 # 清理函数中的不支持字段
-                function = _clean_json_schema_properties(function)
+                cleaned_parameters = _sanitize_schema(parameters)
+                function["parameters"] = cleaned_parameters
                 function_declarations.append(function)
 
         if function_declarations:
