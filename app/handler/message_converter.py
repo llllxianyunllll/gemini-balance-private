@@ -22,7 +22,6 @@ from app.core.constants import (
     VIDEO_FORMAT_TO_MIMETYPE,
 )
 from app.log.logger import get_message_converter_logger
-from app.service.chat.openai_chat_service import _sanitize_function_name
 
 logger = get_message_converter_logger()
 
@@ -131,6 +130,18 @@ def _process_text_with_image(text: str, model: str) -> List[Dict[str, Any]]:
         # 没有图片URL，作为纯文本处理
         parts.append({"text": text})
     return parts
+
+
+def _sanitize_function_name(name: str) -> str:
+    """
+    清洗工具名称，使其符合 Gemini API 的强制正则
+    """
+    if not name:
+        return "unnamed_function"
+    sanitized = re.sub(r'[^a-zA-Z0-9_]', '_', name)
+    if not re.match(r'^[a-zA-Z_]', sanitized):
+        sanitized = "func_" + sanitized
+    return sanitized[:128]
 
 
 class OpenAIMessageConverter(MessageConverter):
