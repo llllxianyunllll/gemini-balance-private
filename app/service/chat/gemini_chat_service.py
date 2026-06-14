@@ -148,18 +148,16 @@ def _build_tools(model: str, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
                     cleaned_functions = []
                     for func in v:
                         if isinstance(func, dict):
-                            # 先递归清洗参数 Schema 内部的非法字段
-                            cleaned_func = _clean_json_schema_properties(func)
-                            
-                            # 核心修复 2：对函数声明的根节点执行“绝对白名单”过滤
-                            # 彻底剥离 OpenAI 专有的 strict 等顶级非法属性
                             safe_func = {}
-                            if "name" in cleaned_func:
-                                safe_func["name"] = _sanitize_function_name(cleaned_func["name"])
-                            if "description" in cleaned_func:
-                                safe_func["description"] = cleaned_func["description"]
-                            if "parameters" in cleaned_func:
-                                safe_func["parameters"] = cleaned_func["parameters"]
+                            if "name" in func:
+                                # 提取原名称并格式化
+                                safe_func["name"] = _sanitize_function_name(func["name"])
+                            if "description" in func:
+                                safe_func["description"] = func["description"]
+                                
+                            # 核心修正：只清理 schema，保护外层结构
+                            if "parameters" in func and func["parameters"]:
+                                safe_func["parameters"] = _clean_json_schema_properties(func["parameters"])
                                 
                             cleaned_functions.append(safe_func)
                         else:

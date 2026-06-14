@@ -136,23 +136,22 @@ def _build_tools(
             if item.get("type", "") == "function" and item.get("function"):
                 function = deepcopy(item.get("function"))
                 parameters = function.get("parameters", {})
-                if parameters.get("type") == "object" and not parameters.get(
-                    "properties", {}
-                ):
-                    function.pop("parameters", None)
-
-                # 第一道防线：递归执行白名单清理，滤除内部嵌套的非法 Schema
-                cleaned_function = _clean_json_schema_properties(function)
                 
-                # 第二道防线：函数声明根节点的绝对白名单
-                # 彻底丢弃 strict 等 OpenAI 专有的外层包装字段
+                # 兼容空对象的处理
+                if parameters.get("type") == "object" and not parameters.get("properties", {}):
+                    parameters = None
+                elif parameters:
+                    # 核心修正：绝对只能清洗 parameters 内部，严禁清洗外层的 function！
+                    parameters = _clean_json_schema_properties(parameters)
+
                 safe_func = {}
-                if "name" in cleaned_function:
-                    safe_func["name"] = _sanitize_function_name(cleaned_function["name"])
-                if "description" in cleaned_function:
-                    safe_func["description"] = cleaned_function["description"]
-                if "parameters" in cleaned_function:
-                    safe_func["parameters"] = cleaned_function["parameters"]
+                if "name" in function:
+                    # 从原 function 字典里提取 name 并格式化
+                    safe_func["name"] = _sanitize_function_name(function["name"])
+                if "description" in function:
+                    safe_func["description"] = function["description"]
+                if parameters:
+                    safe_func["parameters"] = parameters
 
                 function_declarations.append(safe_func)
 
