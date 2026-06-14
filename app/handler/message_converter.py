@@ -1,6 +1,10 @@
 import base64
 import json
+import random
 import re
+import string
+import time
+import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
@@ -315,6 +319,15 @@ class OpenAIMessageConverter(MessageConverter):
                 # Keep existing tool call processing
                 for tool_call in msg["tool_calls"]:
                     function_call = tool_call.get("function", {})
+                    
+                    # 核心修复 1：清洗历史记录中 functionCall 的 name
+                    original_name = function_call.get("name", "")
+                    if original_name:
+                        sanitized = re.sub(r'[^a-zA-Z0-9_.\-:]', '_', original_name)
+                        if not re.match(r'^[a-zA-Z_]', sanitized):
+                            sanitized = "func_" + sanitized
+                        function_call["name"] = sanitized[:128]
+
                     # Sanitize arguments loading
                     arguments_str = function_call.get("arguments", "{}")
                     try:
@@ -335,6 +348,31 @@ class OpenAIMessageConverter(MessageConverter):
             if role not in SUPPORTED_ROLES:
                 if role == "tool":
                     role = "user"
+                    tool_call_id = msg.get("tool_call_id", "")
+                    content = msg.get("content", "")
+                    function_name = msg.get("name", tool_call_id)
+                    
+                    if function_name:
+                        sanitized_func = re.sub(r'[^a-zA-Z0-9_.\-:]', '_', function_name)
+                        if not re.match(r'^[a-zA-Z_]', sanitized_func):
+                            sanitized_func = "func_" + sanitized_func
+                        function_name = sanitized_func[:128]
+
+                    try:
+                        parsed_content = json.loads(content) if content else {}
+                        if not isinstance(parsed_content, dict):
+                            parsed_content = {"result": parsed_content}
+                    except json.JSONDecodeError:
+                        parsed_content = {"result": content}
+
+                    parts = [
+                        {
+                            "functionResponse": {
+                                "name": function_name,
+                                "response": parsed_content
+                            }
+                        }
+                    ]
                 else:
                     # 如果是最后一条消息，则认为是用户消息
                     if idx == len(messages) - 1:
