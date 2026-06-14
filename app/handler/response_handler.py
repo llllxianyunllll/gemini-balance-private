@@ -353,14 +353,20 @@ def _extract_tool_calls(
         if gemini_format:
             tool_calls.append(part)
         else:
-            base_id = item.get("id", f"call_{''.join(random.sample(letters, 32))}")
+            # 1. 获取 Google 返回的真实 function id，如果没有则兜底生成
+            base_id = item.get("id")
+            if not base_id:
+                base_id = f"call_{''.join(random.sample(letters, 32))}"
+            
+            # 2. 尝试从 part 中提取隐藏的 thought_signature
             thought_sig = part.get("thoughtSignature") or part.get("thought_signature")
-
+            
+            # 3. 核心修复：如果存在签名，将其打包进 id 里面（ID夹带法）
             if thought_sig:
                 stuffed_id = f"{base_id}||{thought_sig}"
             else:
                 stuffed_id = base_id
-                
+
             name = item.get("name", "")
             arguments = json.dumps(item.get("args", None) or {})
 
