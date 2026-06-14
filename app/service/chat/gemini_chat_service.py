@@ -116,26 +116,32 @@ def _build_tools(model: str, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
                 continue
 
             for k, v in item.items():
-                if k == "functionDeclarations" and v and isinstance(v, list):
-                    functions = record.get("functionDeclarations", [])
-                    # 清理每个函数声明中的不支持字段
+                # 核心修复 1：同时兼容驼峰与蛇形命名，堵住清洗逻辑被绕过的漏洞
+                if k in ("functionDeclarations", "function_declarations") and v and isinstance(v, list):
+                    # 统一使用后端请求标准键名
+                    functions = record.get(k, [])
                     cleaned_functions = []
                     for func in v:
                         if isinstance(func, dict):
-                            parameters = func.get("parameters", {})
-                            cleaned_parameters = _sanitize_schema(parameters)
-                            cleaned_func = {
-                                "name": func.get("name", ""),
-                                "description": func.get("description", ""),
-                                "parameters": cleaned_parameters
-                            }
-                            cleaned_functions.append(cleaned_func)
+                            # 核心修复 2：对函数声明的根节点执行“绝对白名单”过滤
+                            # 彻底剥离 OpenAI 专有的 strict 等顶级非法属性
+                            safe_func = {}
+                            if "name" in func:
+                                safe_func["name"] = func["name"]
+                            if "description" in func:
+                                safe_func["description"] = func["description"]
+                            if "parameters" in func:
+                                safe_func["parameters"] = _sanitize_schema(func["parameters"])
+                                
+                            cleaned_functions.append(safe_func)
                         else:
                             cleaned_functions.append(func)
                     functions.extend(cleaned_functions)
-                    record["functionDeclarations"] = functions
+                    record[k] = functions
                 else:
-                    record[k] = v
+                    # 避免同名键被错误覆盖
+                    if k not in record:
+                        record[k] = v
         return record
 
     def _is_structured_output_request(payload: Dict[str, Any]) -> bool:
