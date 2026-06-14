@@ -324,7 +324,7 @@ class OpenAIMessageConverter(MessageConverter):
                         actual_id = tool_call_id.split("||", 1)[0]
 
                     tool_name = msg.get("name", "unknown_tool")
-                    sanitized_func = re.sub(r'[^a-zA-Z0-9_.\-:]', '_', tool_name)
+                    sanitized_func = re.sub(r'[^a-zA-Z0-9_]', '_', tool_name)
                     if not re.match(r'^[a-zA-Z_]', sanitized_func):
                         sanitized_func = "func_" + sanitized_func
                     tool_name = sanitized_func[:128]
@@ -354,7 +354,7 @@ class OpenAIMessageConverter(MessageConverter):
                     # 核心修复 2: 清洗历史记录中大模型发起的工具调用名称
                     original_name = function_call.get("name", "")
                     if original_name:
-                        sanitized = re.sub(r'[^a-zA-Z0-9_.\-:]', '_', original_name)
+                        sanitized = re.sub(r'[^a-zA-Z0-9_]', '_', original_name)
                         if not re.match(r'^[a-zA-Z_]', sanitized):
                             sanitized = "func_" + sanitized
                         function_call["name"] = sanitized[:128]
