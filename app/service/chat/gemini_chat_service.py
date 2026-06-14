@@ -56,39 +56,45 @@ def _extract_file_references(contents: List[Dict[str, Any]]) -> List[str]:
     return file_names
 
 
-def _sanitize_schema(schema: dict) -> dict:
-    """
-    递归清洗 JSON Schema，仅保留 Gemini API 严格支持的字段，防止 400 报错。
-    """
-    if not isinstance(schema, dict):
-        return schema
+def _clean_json_schema_properties(obj: Any) -> Any:
+    """清理JSON Schema中Gemini API不支持的字段（采用绝对白名单模式）"""
+    if not isinstance(obj, dict):
+        return obj
 
-    # Gemini Schema 对象严格允许的字段白名单
+    # 核心修复：抛弃黑名单。Gemini 仅支持这 8 个基础 Schema 字段，其余全部丢弃。
     allowed_keys = {
-        "type", "format", "description", "nullable", 
-        "enum", "properties", "required", "items"
+        "type",
+        "format",
+        "description",
+        "nullable",
+        "enum",
+        "properties",
+        "required",
+        "items"
     }
-    
-    cleaned_schema = {}
-    for key, value in schema.items():
-        if key in allowed_keys:
-            if key == "properties" and isinstance(value, dict):
-                cleaned_schema[key] = {k: _sanitize_schema(v) for k, v in value.items()}
-            elif key == "items" and isinstance(value, dict):
-                cleaned_schema[key] = _sanitize_schema(value)
-            # 处理 type 为 list 的边缘情况 (Gemini 官方标准只允许 string，例如 "STRING" 或 "OBJECT")
-            elif key == "type" and isinstance(value, list):
-                 # 如果有多个 type（如 ["string", "null"]），提取主要类型
-                 cleaned_schema[key] = value[0] if value else "STRING"
+
+    cleaned = {}
+    for key, value in obj.items():
+        if key not in allowed_keys:
+            continue
+            
+        # 处理 type 字段，兼容上游可能传 ["string", "null"] 的联合类型
+        if key == "type" and isinstance(value, list):
+            valid_types = [t for t in value if t and t != "null"]
+            value = valid_types[0] if valid_types else "string"
+
+        if isinstance(value, dict):
+            cleaned[key] = _clean_json_schema_properties(value)
+        elif isinstance(value, list):
+            # enum 和 required 的列表是基础值，直接放行
+            if key in {"enum", "required"}:
+                cleaned[key] = value
             else:
-                cleaned_schema[key] = value
+                cleaned[key] = [_clean_json_schema_properties(item) for item in value]
+        else:
+            cleaned[key] = value
 
-    # 类型映射兜底：OpenAI 传进来的类型可能是小写的 json schema 标准，
-    # Gemini 部分旧接口可能需要大写，视具体 SDK 实现而定（如果 SDK 已经处理则忽略，这里保证结构纯净）
-    if "type" in cleaned_schema and isinstance(cleaned_schema["type"], str):
-        cleaned_schema["type"] = cleaned_schema["type"].upper()
-
-    return cleaned_schema
+    return cleaned
 
 
 def _build_tools(model: str, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -123,15 +129,18 @@ def _build_tools(model: str, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
                     cleaned_functions = []
                     for func in v:
                         if isinstance(func, dict):
+                            # 先递归清洗参数 Schema 内部的非法字段
+                            cleaned_func = _clean_json_schema_properties(func)
+                            
                             # 核心修复 2：对函数声明的根节点执行“绝对白名单”过滤
                             # 彻底剥离 OpenAI 专有的 strict 等顶级非法属性
                             safe_func = {}
-                            if "name" in func:
-                                safe_func["name"] = func["name"]
-                            if "description" in func:
-                                safe_func["description"] = func["description"]
-                            if "parameters" in func:
-                                safe_func["parameters"] = _sanitize_schema(func["parameters"])
+                            if "name" in cleaned_func:
+                                safe_func["name"] = cleaned_func["name"]
+                            if "description" in cleaned_func:
+                                safe_func["description"] = cleaned_func["description"]
+                            if "parameters" in cleaned_func:
+                                safe_func["parameters"] = cleaned_func["parameters"]
                                 
                             cleaned_functions.append(safe_func)
                         else:

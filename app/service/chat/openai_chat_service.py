@@ -35,39 +35,45 @@ def _has_media_parts(messages: List[Dict[str, Any]]) -> bool:
     return False
 
 
-def _sanitize_schema(schema: dict) -> dict:
-    """
-    递归清洗 JSON Schema，仅保留 Gemini API 严格支持的字段，防止 400 报错。
-    """
-    if not isinstance(schema, dict):
-        return schema
+def _clean_json_schema_properties(obj: Any) -> Any:
+    """清理JSON Schema中Gemini API不支持的字段（采用绝对白名单模式）"""
+    if not isinstance(obj, dict):
+        return obj
 
-    # Gemini Schema 对象严格允许的字段白名单
+    # 核心修复：抛弃黑名单。Gemini 仅支持这 8 个基础 Schema 字段，其余全部丢弃。
     allowed_keys = {
-        "type", "format", "description", "nullable", 
-        "enum", "properties", "required", "items"
+        "type",
+        "format",
+        "description",
+        "nullable",
+        "enum",
+        "properties",
+        "required",
+        "items"
     }
-    
-    cleaned_schema = {}
-    for key, value in schema.items():
-        if key in allowed_keys:
-            if key == "properties" and isinstance(value, dict):
-                cleaned_schema[key] = {k: _sanitize_schema(v) for k, v in value.items()}
-            elif key == "items" and isinstance(value, dict):
-                cleaned_schema[key] = _sanitize_schema(value)
-            # 处理 type 为 list 的边缘情况 (Gemini 官方标准只允许 string，例如 "STRING" 或 "OBJECT")
-            elif key == "type" and isinstance(value, list):
-                 # 如果有多个 type（如 ["string", "null"]），提取主要类型
-                 cleaned_schema[key] = value[0] if value else "STRING"
+
+    cleaned = {}
+    for key, value in obj.items():
+        if key not in allowed_keys:
+            continue
+            
+        # 处理 type 字段，兼容上游可能传 ["string", "null"] 的联合类型
+        if key == "type" and isinstance(value, list):
+            valid_types = [t for t in value if t and t != "null"]
+            value = valid_types[0] if valid_types else "string"
+
+        if isinstance(value, dict):
+            cleaned[key] = _clean_json_schema_properties(value)
+        elif isinstance(value, list):
+            # enum 和 required 的列表是基础值，直接放行
+            if key in {"enum", "required"}:
+                cleaned[key] = value
             else:
-                cleaned_schema[key] = value
+                cleaned[key] = [_clean_json_schema_properties(item) for item in value]
+        else:
+            cleaned[key] = value
 
-    # 类型映射兜底：OpenAI 传进来的类型可能是小写的 json schema 标准，
-    # Gemini 部分旧接口可能需要大写，视具体 SDK 实现而定（如果 SDK 已经处理则忽略，这里保证结构纯净）
-    if "type" in cleaned_schema and isinstance(cleaned_schema["type"], str):
-        cleaned_schema["type"] = cleaned_schema["type"].upper()
-
-    return cleaned_schema
+    return cleaned
 
 
 def _build_tools(
@@ -114,10 +120,20 @@ def _build_tools(
                 ):
                     function.pop("parameters", None)
 
-                # 清理函数中的不支持字段
-                cleaned_parameters = _sanitize_schema(parameters)
-                function["parameters"] = cleaned_parameters
-                function_declarations.append(function)
+                # 第一道防线：递归执行白名单清理，滤除内部嵌套的非法 Schema
+                cleaned_function = _clean_json_schema_properties(function)
+                
+                # 第二道防线：函数声明根节点的绝对白名单
+                # 彻底丢弃 strict 等 OpenAI 专有的外层包装字段
+                safe_func = {}
+                if "name" in cleaned_function:
+                    safe_func["name"] = cleaned_function["name"]
+                if "description" in cleaned_function:
+                    safe_func["description"] = cleaned_function["description"]
+                if "parameters" in cleaned_function:
+                    safe_func["parameters"] = cleaned_function["parameters"]
+
+                function_declarations.append(safe_func)
 
         if function_declarations:
             # 按照 function 的 name 去重
