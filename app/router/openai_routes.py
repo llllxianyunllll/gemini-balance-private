@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import JSONResponse, StreamingResponse
+import json
 
 from app.config.config import settings
 from app.core.security import SecurityService
@@ -109,8 +110,10 @@ async def chat_completion(
                 # 尝试获取第一条数据，判断是正常 SSE（data: 前缀）还是错误 JSON
                 first_chunk = await raw_response.__anext__()
             except StopAsyncIteration:
-                # 如果流直接结束，退回标准 SSE 输出
-                return StreamingResponse(raw_response, media_type="text/event-stream")
+                # 如果流直接结束，返回一个仅生成 data: [DONE]\n\n 的空流
+                async def empty_stream():
+                    yield "data: [DONE]\n\n"
+                return StreamingResponse(empty_stream(), media_type="text/event-stream")
             except Exception as e:
                 # 初始化流异常，直接返回 500 错误
                 return JSONResponse(
@@ -118,15 +121,16 @@ async def chat_completion(
                     status_code=e.args[0],
                 )
 
-            # 如果以 "data:" 开头，代表正常 SSE，将首块和后续块一起发送
-            if isinstance(first_chunk, str) and first_chunk.startswith("data:"):
-
-                async def combined():
+            async def combined():
+                if isinstance(first_chunk, str):
                     yield first_chunk
-                    async for chunk in raw_response:
-                        yield chunk
+                else:
+                    yield f"data: {json.dumps(first_chunk)}\n\n"
+                async for chunk in raw_response:
+                    yield chunk
+                yield "data: [DONE]\n\n"
 
-                return StreamingResponse(combined(), media_type="text/event-stream")
+            return StreamingResponse(combined(), media_type="text/event-stream")
         else:
             return raw_response
 

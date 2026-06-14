@@ -168,6 +168,9 @@ def _build_tools(model: str, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     # 当请求指定了JSON响应格式时，跳过所有工具的添加以避免API错误
     has_structured_output = _is_structured_output_request(payload)
     if not has_structured_output:
+        real_model = _get_real_model(model)
+        enable_search = model.endswith("-search") or getattr(settings, "FORCE_ENABLE_SEARCH", False)
+
         if (
             settings.TOOLS_CODE_EXECUTION_ENABLED
             and not (model.endswith("-search") or "-thinking" in model)
@@ -175,10 +178,12 @@ def _build_tools(model: str, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
         ):
             tool["codeExecution"] = {}
 
-        if model.endswith("-search"):
-            tool["googleSearch"] = {}
+        if enable_search:
+            if "gemini-3" in real_model or "gemini-2.5" in real_model:
+                tool["google_search"] = {}
+            else:
+                tool["googleSearchRetrieval"] = {"dynamicRetrievalConfig": {"mode": "MODE_DYNAMIC", "dynamicThreshold": 0.3}}
 
-        real_model = _get_real_model(model)
         if real_model in settings.URL_CONTEXT_MODELS and settings.URL_CONTEXT_ENABLED:
             tool["urlContext"] = {}
 
@@ -365,8 +370,9 @@ class GeminiChatService:
         status_code = None
         response = None
 
+        real_model = _get_real_model(model)
         try:
-            response = await self.api_client.generate_content(payload, model, api_key)
+            response = await self.api_client.generate_content(payload, real_model, api_key)
             is_success = True
             status_code = 200
             return self.response_handler.handle_response(response, model, stream=False)
@@ -470,6 +476,7 @@ class GeminiChatService:
         status_code = None
         final_api_key = api_key
 
+        real_model = _get_real_model(model)
         while retries < max_retries:
             request_datetime = datetime.datetime.now()
             start_time = time.perf_counter()
@@ -477,7 +484,7 @@ class GeminiChatService:
             final_api_key = current_attempt_key
             try:
                 async for line in self.api_client.stream_generate_content(
-                    payload, model, current_attempt_key
+                    payload, real_model, current_attempt_key
                 ):
                     # print(line)
                     if line.startswith("data:"):
