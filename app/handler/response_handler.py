@@ -86,6 +86,18 @@ def _handle_openai_stream_response(
             "completion_tokens": usage_metadata.get("candidatesTokenCount", 0),
             "total_tokens": usage_metadata.get("totalTokenCount", 0),
         }
+        
+    # [埋点 4: 逆向转换为 OpenAI 格式完成]
+    try:
+        from app.log.logger import get_openai_logger
+        debug_logger = get_openai_logger()
+        # 仅在包含 tool_calls 时打印，减少无用日志干扰
+        if any("tool_calls" in choice.get("delta", {}) for choice in choices):
+            debug_logger.info("=== [LINK 4: Converted OpenAI Stream Chunk (Tool Call)] ===")
+            debug_logger.info(json.dumps(template_chunk, ensure_ascii=False, indent=2))
+    except Exception:
+        pass
+
     return template_chunk
 
 
@@ -114,7 +126,7 @@ def _handle_openai_normal_response(
         }
         choices.append(choice)
 
-    return {
+    template_chunk = {
         "id": f"chatcmpl-{uuid.uuid4()}",
         "object": "chat.completion",
         "created": int(time.time()),
@@ -126,6 +138,18 @@ def _handle_openai_normal_response(
             "total_tokens": usage_metadata.get("totalTokenCount", 0),
         },
     }
+
+    # [埋点 4: 逆向转换为 OpenAI 格式完成]
+    try:
+        from app.log.logger import get_openai_logger
+        debug_logger = get_openai_logger()
+        if any("tool_calls" in choice.get("message", {}) for choice in choices):
+            debug_logger.info("=== [LINK 4: Converted OpenAI Normal Response (Tool Call)] ===")
+            debug_logger.info(json.dumps(template_chunk, ensure_ascii=False, indent=2))
+    except Exception:
+        pass
+
+    return template_chunk
 
 
 class OpenAIResponseHandler(ResponseHandler):

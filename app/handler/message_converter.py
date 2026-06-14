@@ -423,4 +423,14 @@ class OpenAIMessageConverter(MessageConverter):
                 "parts": system_instruction_parts,
             }
         )
+
+        # [埋点 1: 消息转换完成]
+        try:
+            logger.info("=== [LINK 1: Message Converted (OpenAI -> Gemini)] ===")
+            logger.info(f"Converted Messages: {json.dumps(converted_messages, ensure_ascii=False, indent=2)}")
+            if system_instruction:
+                logger.info(f"System Instruction: {json.dumps(system_instruction, ensure_ascii=False, indent=2)}")
+        except Exception as e:
+            logger.error(f"Failed to log converted messages: {e}")
+
         return converted_messages, system_instruction

@@ -276,6 +276,17 @@ def _build_payload(
     ):
         payload["systemInstruction"] = instruction
 
+    # [埋点 2: Payload 构建完成，准备发送给 Google API]
+    try:
+        from app.log.logger import get_openai_logger
+        debug_logger = get_openai_logger()
+        debug_logger.info("=== [LINK 2: Final Payload to Gemini API] ===")
+        # 截断 contents 过长的部分防止日志爆炸，重点看 tools 和 toolConfig
+        payload_copy = deepcopy(payload)
+        debug_logger.info(json.dumps(payload_copy, ensure_ascii=False, indent=2))
+    except Exception as e:
+        pass
+
     return payload
 
 
@@ -336,6 +347,11 @@ class OpenAIChatService:
 
         try:
             response = await self.api_client.generate_content(payload, model, api_key)
+            
+            # [埋点 3B: 收到 Google 的原始非流式 Response]
+            logger.info("=== [LINK 3B: Raw Gemini Normal Response] ===")
+            logger.info(json.dumps(response, ensure_ascii=False, indent=2))
+            
             usage_metadata = response.get("usageMetadata", {})
             is_success = True
             status_code = 200
@@ -477,6 +493,10 @@ class OpenAIChatService:
         ):
             if line.startswith("data:"):
                 chunk_str = line[6:]
+                
+                # [埋点 3A: 收到 Google 的原始流式 Chunk]
+                logger.info(f"=== [LINK 3A: Raw Gemini Stream Chunk] ===\n{chunk_str}")
+
                 if not chunk_str or chunk_str.isspace():
                     logger.debug(
                         f"Received empty data line for model {model}, skipping."
