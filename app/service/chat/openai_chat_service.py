@@ -81,16 +81,17 @@ def _clean_json_schema_properties(schema: Any) -> Any:
         if key == "properties" and isinstance(value, dict):
             cleaned_props = {}
             for prop_name, prop_schema in value.items():
-                # 递归清理内部的 schema，但保留原汁原味的 prop_name
                 if isinstance(prop_schema, dict):
                     cleaned_props[prop_name] = _clean_json_schema_properties(prop_schema)
             cleaned["properties"] = cleaned_props
+            continue
         
         # 当处理 items 时，直接递归
-        elif key == "items" and isinstance(value, dict):
+        if key == "items" and isinstance(value, dict):
             cleaned["items"] = _clean_json_schema_properties(value)
+            continue
             
-        elif key in {"enum", "required"}:
+        if key in {"enum", "required"}:
             cleaned[key] = value
         else:
             cleaned[key] = value
