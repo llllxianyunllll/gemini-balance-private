@@ -56,6 +56,25 @@ def _extract_file_references(contents: List[Dict[str, Any]]) -> List[str]:
     return file_names
 
 
+def _sanitize_function_name(name: str) -> str:
+    """
+    清洗工具名称，使其符合 Gemini API 的强制正则：
+    ^[a-zA-Z_][a-zA-Z0-9_.-:]*$ ，最大长度 128。
+    """
+    if not name:
+        return "unnamed_function"
+    
+    # 替换所有不允许的字符（非字母数字及 _ . - :）为下划线
+    sanitized = re.sub(r'[^a-zA-Z0-9_.\-:]', '_', name)
+    
+    # 必须以字母或下划线开头，如果是数字开头，强行加个前缀
+    if not re.match(r'^[a-zA-Z_]', sanitized):
+        sanitized = "func_" + sanitized
+        
+    # 截断到最大长度 128
+    return sanitized[:128]
+
+
 def _clean_json_schema_properties(obj: Any) -> Any:
     """清理JSON Schema中Gemini API不支持的字段（采用绝对白名单模式）"""
     if not isinstance(obj, dict):
@@ -136,7 +155,7 @@ def _build_tools(model: str, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
                             # 彻底剥离 OpenAI 专有的 strict 等顶级非法属性
                             safe_func = {}
                             if "name" in cleaned_func:
-                                safe_func["name"] = cleaned_func["name"]
+                                safe_func["name"] = _sanitize_function_name(cleaned_func["name"])
                             if "description" in cleaned_func:
                                 safe_func["description"] = cleaned_func["description"]
                             if "parameters" in cleaned_func:
