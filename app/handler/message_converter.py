@@ -314,20 +314,43 @@ class OpenAIMessageConverter(MessageConverter):
             elif (
                 "content" in msg and isinstance(msg["content"], str) and msg["content"]
             ):
-                parts.extend(_process_text_with_image(msg["content"], model))
+                # 核心修复 1: 拦截处理工具的返回结果 (functionResponse)，并清洗名称
+                if role == "tool":
+                    tool_name = msg.get("name", "unknown_tool")
+                    sanitized_func = re.sub(r'[^a-zA-Z0-9_.\-:]', '_', tool_name)
+                    if not re.match(r'^[a-zA-Z_]', sanitized_func):
+                        sanitized_func = "func_" + sanitized_func
+                    tool_name = sanitized_func[:128]
+                    
+                    tool_content = msg.get("content", "")
+                    try:
+                        response_obj = json.loads(tool_content)
+                        if not isinstance(response_obj, dict):
+                            response_obj = {"result": tool_content}
+                    except Exception:
+                        response_obj = {"result": tool_content}
+                        
+                    parts.append({
+                        "functionResponse": {
+                            "name": tool_name,
+                            "response": response_obj
+                        }
+                    })
+                else:
+                    parts.extend(_process_text_with_image(msg["content"], model))
+                    
             elif "tool_calls" in msg and isinstance(msg["tool_calls"], list):
-                # Keep existing tool call processing
                 for tool_call in msg["tool_calls"]:
                     function_call = tool_call.get("function", {})
                     
-                    # 核心修复 1：清洗历史记录中 functionCall 的 name
+                    # 核心修复 2: 清洗历史记录中大模型发起的工具调用名称
                     original_name = function_call.get("name", "")
                     if original_name:
                         sanitized = re.sub(r'[^a-zA-Z0-9_.\-:]', '_', original_name)
                         if not re.match(r'^[a-zA-Z_]', sanitized):
                             sanitized = "func_" + sanitized
                         function_call["name"] = sanitized[:128]
-
+                    
                     # Sanitize arguments loading
                     arguments_str = function_call.get("arguments", "{}")
                     try:
@@ -340,40 +363,15 @@ class OpenAIMessageConverter(MessageConverter):
                     if "arguments" in function_call:
                         del function_call["arguments"]
 
+                    # 核心修复 3: 注入 thought_signature 绕过 Gemini 3.0 的 400 严格校验
                     parts.append({
                         "functionCall": function_call,
-                        # 核心修正：必须使用蛇形命名，以迎合 Google API 报错信息的精准匹配
                         "thought_signature": "skip_thought_signature_validator"
                     })
 
             if role not in SUPPORTED_ROLES:
                 if role == "tool":
                     role = "user"
-                    tool_call_id = msg.get("tool_call_id", "")
-                    content = msg.get("content", "")
-                    function_name = msg.get("name", tool_call_id)
-                    
-                    if function_name:
-                        sanitized_func = re.sub(r'[^a-zA-Z0-9_.\-:]', '_', function_name)
-                        if not re.match(r'^[a-zA-Z_]', sanitized_func):
-                            sanitized_func = "func_" + sanitized_func
-                        function_name = sanitized_func[:128]
-
-                    try:
-                        parsed_content = json.loads(content) if content else {}
-                        if not isinstance(parsed_content, dict):
-                            parsed_content = {"result": parsed_content}
-                    except json.JSONDecodeError:
-                        parsed_content = {"result": content}
-
-                    parts = [
-                        {
-                            "functionResponse": {
-                                "name": function_name,
-                                "response": parsed_content
-                            }
-                        }
-                    ]
                 else:
                     # 如果是最后一条消息，则认为是用户消息
                     if idx == len(messages) - 1:
