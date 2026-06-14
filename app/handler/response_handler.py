@@ -62,11 +62,12 @@ def _handle_openai_stream_response(
         if not text and not tool_calls and not reasoning_content:
             delta = {}
         else:
-            delta = {
-                "content": text,
-                "reasoning_content": reasoning_content,
-                "role": "assistant",
-            }
+            # 核心修复：动态构建 delta，剔除空的非法字段
+            delta = {"role": "assistant"}
+            if text is not None:
+                delta["content"] = text
+            if reasoning_content:
+                delta["reasoning_content"] = reasoning_content
             if tool_calls:
                 delta["tool_calls"] = tool_calls
 
@@ -114,14 +115,19 @@ def _handle_openai_normal_response(
         text, reasoning_content, tool_calls, _ = _extract_result(
             {"candidates": [candidate]}, model, stream=False, gemini_format=False
         )
+        # 核心修复：动态构建 message，剔除空的非法字段
+        message = {
+            "role": "assistant",
+            "content": text if text is not None else "",
+        }
+        if reasoning_content:
+            message["reasoning_content"] = reasoning_content
+        if tool_calls:
+            message["tool_calls"] = tool_calls
+
         choice = {
             "index": i,
-            "message": {
-                "role": "assistant",
-                "content": text,
-                "reasoning_content": reasoning_content,
-                "tool_calls": tool_calls,
-            },
+            "message": message,
             "finish_reason": finish_reason,
         }
         choices.append(choice)
@@ -133,9 +139,9 @@ def _handle_openai_normal_response(
         "model": model,
         "choices": choices,
         "usage": {
-            "prompt_tokens": usage_metadata.get("promptTokenCount", 0),
-            "completion_tokens": usage_metadata.get("candidatesTokenCount", 0),
-            "total_tokens": usage_metadata.get("totalTokenCount", 0),
+            "prompt_tokens": usage_metadata.get("promptTokenCount", 0) if usage_metadata else 0,
+            "completion_tokens": usage_metadata.get("candidatesTokenCount", 0) if usage_metadata else 0,
+            "total_tokens": usage_metadata.get("totalTokenCount", 0) if usage_metadata else 0,
         },
     }
 
