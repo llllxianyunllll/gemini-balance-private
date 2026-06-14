@@ -75,41 +75,42 @@ def _sanitize_function_name(name: str) -> str:
     return sanitized[:128]
 
 
-def _clean_json_schema_properties(obj: Any) -> Any:
-    """清理JSON Schema中Gemini API不支持的字段（采用绝对白名单模式）"""
-    if not isinstance(obj, dict):
-        return obj
+def _clean_json_schema_properties(schema: Any) -> Any:
+    """清理JSON Schema中Gemini API不支持的字段，正确保留 properties 的参数名"""
+    if not isinstance(schema, dict):
+        return schema
 
-    # 核心修复：抛弃黑名单。Gemini 仅支持这 8 个基础 Schema 字段，其余全部丢弃。
     allowed_keys = {
-        "type",
-        "format",
-        "description",
-        "nullable",
-        "enum",
-        "properties",
-        "required",
-        "items"
+        "type", "format", "description", "nullable", 
+        "enum", "properties", "required", "items"
     }
 
     cleaned = {}
-    for key, value in obj.items():
+    for key, value in schema.items():
         if key not in allowed_keys:
             continue
             
-        # 处理 type 字段，兼容上游可能传 ["string", "null"] 的联合类型
+        # 处理 type 字段的联合类型
         if key == "type" and isinstance(value, list):
             valid_types = [t for t in value if t and t != "null"]
-            value = valid_types[0] if valid_types else "string"
+            cleaned["type"] = valid_types[0] if valid_types else "string"
+            continue
 
-        if isinstance(value, dict):
-            cleaned[key] = _clean_json_schema_properties(value)
-        elif isinstance(value, list):
-            # enum 和 required 的列表是基础值，直接放行
-            if key in {"enum", "required"}:
-                cleaned[key] = value
-            else:
-                cleaned[key] = [_clean_json_schema_properties(item) for item in value]
+        # 核心修正：当处理 properties 时，遍历的是"参数名"，绝不能用白名单过滤参数名！
+        if key == "properties" and isinstance(value, dict):
+            cleaned_props = {}
+            for prop_name, prop_schema in value.items():
+                # 递归清理内部的 schema，但保留原汁原味的 prop_name
+                if isinstance(prop_schema, dict):
+                    cleaned_props[prop_name] = _clean_json_schema_properties(prop_schema)
+            cleaned["properties"] = cleaned_props
+        
+        # 当处理 items 时，直接递归
+        elif key == "items" and isinstance(value, dict):
+            cleaned["items"] = _clean_json_schema_properties(value)
+            
+        elif key in {"enum", "required"}:
+            cleaned[key] = value
         else:
             cleaned[key] = value
 

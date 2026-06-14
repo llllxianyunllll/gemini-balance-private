@@ -342,7 +342,8 @@ class OpenAIMessageConverter(MessageConverter):
 
                     parts.append({
                         "functionCall": function_call,
-                        "thoughtSignature": "skip_thought_signature_validator"
+                        # 核心修正：必须使用蛇形命名，以迎合 Google API 报错信息的精准匹配
+                        "thought_signature": "skip_thought_signature_validator"
                     })
 
             if role not in SUPPORTED_ROLES:
