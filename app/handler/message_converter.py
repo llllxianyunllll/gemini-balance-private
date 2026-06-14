@@ -22,6 +22,7 @@ from app.core.constants import (
     VIDEO_FORMAT_TO_MIMETYPE,
 )
 from app.log.logger import get_message_converter_logger
+from app.service.chat.openai_chat_service import _sanitize_function_name
 
 logger = get_message_converter_logger()
 
@@ -167,6 +168,16 @@ class OpenAIMessageConverter(MessageConverter):
     ) -> tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
         converted_messages = []
         system_instruction_parts = []
+
+        tool_name_map = {}
+        for msg in messages:
+            if msg.get("role") == "assistant" and "tool_calls" in msg:
+                for tool in msg["tool_calls"]:
+                    t_id = tool.get("id", "")
+                    t_name = tool.get("function", {}).get("name", "")
+                    base_id = t_id.split("||")[0] if "||" in t_id else t_id
+                    if base_id and t_name:
+                        tool_name_map[base_id] = t_name
 
         for idx, msg in enumerate(messages):
             role = msg.get("role", "")
@@ -318,16 +329,15 @@ class OpenAIMessageConverter(MessageConverter):
                 if role == "tool":
                     tool_call_id = msg.get("tool_call_id", "")
                     
-                    # 核心修复：分离出真实的 ID
-                    actual_id = tool_call_id
-                    if "||" in tool_call_id:
-                        actual_id = tool_call_id.split("||", 1)[0]
+                    base_id = tool_call_id.split("||")[0] if "||" in tool_call_id else tool_call_id
 
-                    tool_name = msg.get("name", "unknown_tool")
-                    sanitized_func = re.sub(r'[^a-zA-Z0-9_]', '_', tool_name)
-                    if not re.match(r'^[a-zA-Z_]', sanitized_func):
-                        sanitized_func = "func_" + sanitized_func
-                    tool_name = sanitized_func[:128]
+                    # 从映射表中找回丢失的 name
+                    name = msg.get("name")
+                    if not name:
+                        name = tool_name_map.get(base_id, "unknown_tool")
+                        
+                    # 必须清洗符合 Gemini 的正则规范
+                    name = _sanitize_function_name(name)
                     
                     tool_content = msg.get("content", "")
                     try:
@@ -339,8 +349,8 @@ class OpenAIMessageConverter(MessageConverter):
                         
                     parts.append({
                         "functionResponse": {
-                            "id": actual_id,
-                            "name": tool_name,
+                            "id": base_id,
+                            "name": name,
                             "response": response_obj
                         }
                     })
