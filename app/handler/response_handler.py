@@ -353,14 +353,21 @@ def _extract_tool_calls(
         if gemini_format:
             tool_calls.append(part)
         else:
-            id = f"call_{''.join(random.sample(letters, 32))}"
+            base_id = item.get("id", f"call_{''.join(random.sample(letters, 32))}")
+            thought_sig = part.get("thoughtSignature") or part.get("thought_signature")
+
+            if thought_sig:
+                stuffed_id = f"{base_id}||{thought_sig}"
+            else:
+                stuffed_id = base_id
+                
             name = item.get("name", "")
             arguments = json.dumps(item.get("args", None) or {})
 
             tool_calls.append(
                 {
                     "index": i,
-                    "id": id,
+                    "id": stuffed_id,
                     "type": "function",
                     "function": {"name": name, "arguments": arguments},
                 }

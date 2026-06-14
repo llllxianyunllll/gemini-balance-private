@@ -316,6 +316,13 @@ class OpenAIMessageConverter(MessageConverter):
             ):
                 # 核心修复 1: 拦截处理工具的返回结果 (functionResponse)，并清洗名称
                 if role == "tool":
+                    tool_call_id = msg.get("tool_call_id", "")
+                    
+                    # 核心修复：分离出真实的 ID
+                    actual_id = tool_call_id
+                    if "||" in tool_call_id:
+                        actual_id = tool_call_id.split("||", 1)[0]
+
                     tool_name = msg.get("name", "unknown_tool")
                     sanitized_func = re.sub(r'[^a-zA-Z0-9_.\-:]', '_', tool_name)
                     if not re.match(r'^[a-zA-Z_]', sanitized_func):
@@ -332,6 +339,7 @@ class OpenAIMessageConverter(MessageConverter):
                         
                     parts.append({
                         "functionResponse": {
+                            "id": actual_id,
                             "name": tool_name,
                             "response": response_obj
                         }
@@ -363,11 +371,27 @@ class OpenAIMessageConverter(MessageConverter):
                     if "arguments" in function_call:
                         del function_call["arguments"]
 
-                    # 核心修复 3: 注入 thought_signature 绕过 Gemini 3.0 的 400 严格校验
-                    parts.append({
-                        "functionCall": function_call,
-                        "thought_signature": "skip_thought_signature_validator"
-                    })
+                    # 3. 核心修复：从夹带的 ID 中分离真实 ID 和 思考签名
+                    raw_id = tool_call.get("id", "")
+                    actual_id = raw_id
+                    thought_sig = None
+                    
+                    if "||" in raw_id:
+                        parts_split = raw_id.split("||", 1)
+                        actual_id = parts_split[0]
+                        thought_sig = parts_split[1]
+
+                    function_call["id"] = actual_id
+
+                    part_dict = {"functionCall": function_call}
+                    
+                    # 如果成功解包出签名，严格按照 Gemini 规范附带回去
+                    if thought_sig:
+                        part_dict["thought_signature"] = thought_sig
+                    else:
+                        part_dict["thought_signature"] = "skip_thought_signature_validator"
+
+                    parts.append(part_dict)
 
             if role not in SUPPORTED_ROLES:
                 if role == "tool":
